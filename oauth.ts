@@ -66,21 +66,7 @@ export function extractAuthorizationCode(input: string): string {
 	return trimmed;
 }
 
-export async function exchangeAuthorizationCode(
-	credentials: GoogleOAuthClientCredentials,
-	authorizationCode: string,
-): Promise<GoogleOAuthTokenSet> {
-	const params = new URLSearchParams({
-		code: extractAuthorizationCode(authorizationCode),
-		client_id: credentials.clientId,
-		redirect_uri: credentials.redirectUri,
-		grant_type: "authorization_code",
-	});
-
-	if (credentials.clientSecret) {
-		params.set("client_secret", credentials.clientSecret);
-	}
-
+async function exchangeTokenRequest(params: URLSearchParams, errorPrefix: string): Promise<GoogleOAuthTokenSet> {
 	const response = await fetch(GOOGLE_OAUTH_TOKEN_URL, {
 		method: "POST",
 		headers: {
@@ -96,11 +82,11 @@ export async function exchangeAuthorizationCode(
 			: typeof payload.error === "string"
 				? payload.error
 				: `Token exchange failed with status ${response.status}`;
-		throw new Error(`Google OAuth token exchange failed: ${message}`);
+		throw new Error(`${errorPrefix}: ${message}`);
 	}
 
 	if (typeof payload.access_token !== "string") {
-		throw new Error("Google OAuth token exchange response did not include access_token.");
+		throw new Error(`${errorPrefix}: response did not include access_token.`);
 	}
 
 	return {
@@ -112,6 +98,50 @@ export async function exchangeAuthorizationCode(
 				: undefined,
 		scope: typeof payload.scope === "string" ? payload.scope : undefined,
 		tokenType: typeof payload.token_type === "string" ? payload.token_type : undefined,
+	};
+}
+
+export async function exchangeAuthorizationCode(
+	credentials: GoogleOAuthClientCredentials,
+	authorizationCode: string,
+): Promise<GoogleOAuthTokenSet> {
+	const params = new URLSearchParams({
+		code: extractAuthorizationCode(authorizationCode),
+		client_id: credentials.clientId,
+		redirect_uri: credentials.redirectUri,
+		grant_type: "authorization_code",
+	});
+
+	if (credentials.clientSecret) {
+		params.set("client_secret", credentials.clientSecret);
+	}
+
+	return exchangeTokenRequest(params, "Google OAuth token exchange failed");
+}
+
+export async function refreshAccessToken(
+	credentials: GoogleOAuthClientCredentials,
+	refreshToken: string,
+): Promise<GoogleOAuthTokenSet> {
+	const trimmedRefreshToken = refreshToken.trim();
+	if (!trimmedRefreshToken) {
+		throw new Error("Cannot refresh Gmail access without a refresh token. Re-run /gmail-auth exchange.");
+	}
+
+	const params = new URLSearchParams({
+		client_id: credentials.clientId,
+		grant_type: "refresh_token",
+		refresh_token: trimmedRefreshToken,
+	});
+
+	if (credentials.clientSecret) {
+		params.set("client_secret", credentials.clientSecret);
+	}
+
+	const refreshedTokens = await exchangeTokenRequest(params, "Google OAuth token refresh failed");
+	return {
+		...refreshedTokens,
+		refreshToken: refreshedTokens.refreshToken ?? trimmedRefreshToken,
 	};
 }
 

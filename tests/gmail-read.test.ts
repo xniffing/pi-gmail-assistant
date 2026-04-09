@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import gmailExtension from "../index.ts";
-import { saveOAuthTokensForAccount } from "../token-store.ts";
+import { loadOAuthTokens, saveOAuthClientCredentials, saveOAuthTokensForAccount } from "../token-store.ts";
 
 interface RegisteredTool {
 	name: string;
@@ -27,10 +27,12 @@ function createMockPi() {
 const TEST_STATE_ROOT = join(homedir(), ".config", "automation", "gmail");
 const TEST_ACCOUNT_DIR = join(TEST_STATE_ROOT, "accounts", "test-example-com");
 const TEST_ACTIVE_ACCOUNT_PATH = join(TEST_STATE_ROOT, "active-account.json");
+const TEST_SHARED_CREDENTIALS_PATH = join(TEST_STATE_ROOT, "google-oauth-client.json");
 
 async function cleanupTestAuthState(): Promise<void> {
 	await rm(TEST_ACCOUNT_DIR, { recursive: true, force: true });
 	await rm(TEST_ACTIVE_ACCOUNT_PATH, { force: true });
+	await rm(TEST_SHARED_CREDENTIALS_PATH, { force: true });
 }
 
 async function withTempProject(run: (projectRoot: string) => Promise<void>): Promise<void> {
@@ -49,6 +51,16 @@ async function withTempProject(run: (projectRoot: string) => Promise<void>): Pro
 
 async function writeTokens(_projectRoot: string): Promise<void> {
 	await saveOAuthTokensForAccount("test@example.com", { accessToken: "test-token" });
+}
+
+async function writeClientCredentials(): Promise<void> {
+	await saveOAuthClientCredentials(JSON.stringify({
+		installed: {
+			client_id: "test-client-id",
+			client_secret: "test-client-secret",
+			redirect_uris: ["http://127.0.0.1"],
+		},
+	}));
 }
 
 function findTool(tools: RegisteredTool[], name: string): RegisteredTool {
@@ -99,6 +111,51 @@ test("registers inbox list/read/search tools with normalized output", async () =
 			const searchResult = await findTool(pi.tools, "gmail_search_messages").execute("call-3", { query: "from:boss", maxResults: 1 });
 			assert.match(searchResult.content[0]?.text ?? "", /Search results for: from:boss/);
 			assert.match(searchResult.content[0]?.text ?? "", /Need update/);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+test("automatically refreshes expired access tokens when a refresh token is available", async () => {
+	await withTempProject(async (projectRoot) => {
+		await writeClientCredentials();
+		await saveOAuthTokensForAccount("test@example.com", {
+			accessToken: "expired-token",
+			refreshToken: "refresh-token",
+			expiryDate: Date.now() - 60_000,
+		});
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
+			const href = String(url);
+			if (href === "https://oauth2.googleapis.com/token") {
+				assert.match(String(init?.body ?? ""), /grant_type=refresh_token/);
+				return new Response(JSON.stringify({
+					access_token: "fresh-token",
+					expires_in: 3600,
+					token_type: "Bearer",
+				}), { status: 200, headers: { "content-type": "application/json" } });
+			}
+			if (href.includes("/messages?") && href.includes("q=in%3Ainbox")) {
+				assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer fresh-token");
+				return new Response(JSON.stringify({ messages: [{ id: "m1" }] }), { status: 200, headers: { "content-type": "application/json" } });
+			}
+			if (href.includes("m1?format=metadata")) {
+				assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer fresh-token");
+				return new Response(JSON.stringify({ id: "m1", snippet: "Inbox preview", payload: { headers: [{ name: "From", value: "Boss <boss@example.com>" }, { name: "Subject", value: "Weekly sync" }, { name: "Date", value: "Thu, 09 Apr 2026 09:00:00 +0000" }] } }), { status: 200, headers: { "content-type": "application/json" } });
+			}
+			throw new Error(`Unexpected fetch URL: ${href}`);
+		};
+
+		try {
+			const pi = createMockPi();
+			gmailExtension(pi as never);
+			const listResult = await findTool(pi.tools, "gmail_list_inbox_messages").execute("call-refresh", { maxResults: 1 });
+			assert.match(listResult.content[0]?.text ?? "", /Weekly sync/);
+			const storedTokens = await loadOAuthTokens();
+			assert.equal(storedTokens?.accessToken, "fresh-token");
+			assert.equal(storedTokens?.refreshToken, "refresh-token");
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

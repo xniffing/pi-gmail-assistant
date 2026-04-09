@@ -127,28 +127,42 @@ export async function saveOAuthTokensForAccount(email: string, tokens: GoogleOAu
 	return paths;
 }
 
-export async function loadOAuthTokens(paths = getDefaultTokenStorePaths()): Promise<GoogleOAuthTokenSet | undefined> {
+export async function getResolvedTokenStorePaths(paths = getDefaultTokenStorePaths()): Promise<GmailTokenStorePaths> {
 	const activeAccountEmail = await loadActiveAccountEmail();
 	if (activeAccountEmail) {
 		const accountPaths = getAccountTokenStorePaths(activeAccountEmail);
 		if (await pathExists(accountPaths.tokenPath)) {
-			const rawJson = await readFile(accountPaths.tokenPath, "utf8");
-			return JSON.parse(rawJson) as GoogleOAuthTokenSet;
+			return accountPaths;
 		}
 	}
 
 	if (await pathExists(paths.tokenPath)) {
-		const rawJson = await readFile(paths.tokenPath, "utf8");
-		return JSON.parse(rawJson) as GoogleOAuthTokenSet;
+		return paths;
 	}
 
 	const legacyPaths = getLegacyProjectStorePaths();
 	if (await pathExists(legacyPaths.tokenPath)) {
-		const rawJson = await readFile(legacyPaths.tokenPath, "utf8");
-		return JSON.parse(rawJson) as GoogleOAuthTokenSet;
+		return legacyPaths;
 	}
 
-	return undefined;
+	return activeAccountEmail ? getAccountTokenStorePaths(activeAccountEmail) : paths;
+}
+
+export async function loadOAuthTokens(paths = getDefaultTokenStorePaths()): Promise<GoogleOAuthTokenSet | undefined> {
+	const resolvedPaths = await getResolvedTokenStorePaths(paths);
+	if (!(await pathExists(resolvedPaths.tokenPath))) {
+		return undefined;
+	}
+
+	const rawJson = await readFile(resolvedPaths.tokenPath, "utf8");
+	return JSON.parse(rawJson) as GoogleOAuthTokenSet;
+}
+
+export async function saveResolvedOAuthTokens(tokens: GoogleOAuthTokenSet, paths = getDefaultTokenStorePaths()): Promise<GmailTokenStorePaths> {
+	const resolvedPaths = await getResolvedTokenStorePaths(paths);
+	await ensurePrivateDirectory(resolvedPaths.baseDir);
+	await writePrivateJson(resolvedPaths.tokenPath, tokens);
+	return resolvedPaths;
 }
 
 export async function getGmailAuthStatus(paths = getDefaultTokenStorePaths()): Promise<GmailAuthStatus> {

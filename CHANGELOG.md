@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.3 - 2026-04-09
+
+### Added
+- automatic Gmail access-token refresh using stored refresh tokens
+- test coverage for successful token refresh before Gmail API requests
+- README guidance for long-lived local OAuth setup and Production consent-screen usage
+
+### Changed
+- Gmail read, list, search, send-adjacent auth paths, and attachment downloads now reuse refreshed tokens automatically
+- Gmail auth errors now only require `/gmail-auth exchange` when tokens are missing, revoked, unrefreshable, or missing required scope
+
 ## 0.1.2 - 2026-04-09
 
 ### Added

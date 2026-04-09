@@ -9,7 +9,7 @@ After publishing to npm, add it to Pi through `settings.json`:
 ```json
 {
   "packages": [
-    "npm:@xniffing/pi-gmail-assistant@0.1.2"
+    "npm:@xniffing/pi-gmail-assistant@0.1.3"
   ]
 }
 ```
@@ -36,6 +36,7 @@ npm pack --dry-run
 - generates a Google OAuth consent URL for Gmail scopes
 - exchanges an authorization code for Google tokens
 - stores OAuth credentials and tokens outside git-tracked files
+- refreshes expired Gmail access tokens automatically when a stored refresh token is available
 - lets Pi list recent inbox mail with compact previews
 - lets Pi search Gmail with normal Gmail query syntax
 - lets Pi read one message by id without dumping raw Gmail API payloads
@@ -50,7 +51,8 @@ npm pack --dry-run
 2. Enable the **Gmail API** for that project.
 3. Create an **OAuth client ID** in **APIs & Services → Credentials**.
 4. Add at least one redirect URI. The simplest option is a loopback URI such as `http://127.0.0.1`.
-5. Download the OAuth client JSON.
+5. In **OAuth consent screen**, prefer **Production** over **Testing** for a more stable long-lived setup.
+6. Download the OAuth client JSON.
 
 ## Required Gmail scopes
 
@@ -89,7 +91,9 @@ Before Pi can read or send Gmail, complete the local auth flow introduced in AU-
 /gmail-auth status
 ```
 
-If tokens are missing, expired, revoked, or missing the send scope, Gmail tools will tell you to rerun `/gmail-auth exchange`.
+If tokens are missing, revoked, missing the send scope, or cannot be refreshed automatically, Gmail tools will tell you to rerun `/gmail-auth exchange`.
+
+When a refresh token is stored locally, the extension now attempts to refresh expired access tokens automatically before asking you to re-authenticate.
 
 If you previously authenticated with an older project-scoped version of the extension, rerun `/gmail-auth exchange` once so the active account can be detected and saved into the new account-scoped token layout.
 
@@ -347,6 +351,29 @@ Publish with:
 cd ~/Projects/pi-gmail-assistant
 npm publish --access public
 ```
+
+## OAuth behavior for long-lived local auth
+
+The extension already requests the recommended Google OAuth parameters for durable local auth during the first authorization flow:
+
+- `access_type=offline`
+- `prompt=consent`
+- `include_granted_scopes=true`
+
+These parameters are configured in `oauth.ts` inside `buildGoogleConsentUrl(...)`.
+
+What they do:
+
+- `access_type=offline` asks Google to return a refresh token so the extension can obtain new short-lived access tokens later.
+- `prompt=consent` forces the Google consent screen, which helps ensure Google returns a refresh token on the initial authorization.
+- `include_granted_scopes=true` helps incremental authorization reuse already granted scopes.
+
+Important notes:
+
+- Google access tokens are still short-lived and typically expire quickly.
+- The extension now uses the stored refresh token to renew access automatically.
+- If Google does not issue a refresh token, or if the refresh token is revoked later, you must rerun `/gmail-auth exchange`.
+- If you change scopes, it is safest to rerun `/gmail-auth exchange` and approve the updated consent screen again.
 
 ## Security expectations
 

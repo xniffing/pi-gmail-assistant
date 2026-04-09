@@ -1,10 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve, sep } from "node:path";
 
-import { loadOAuthTokens } from "./token-store.ts";
+import { loadOAuthClientCredentials, loadOAuthTokens, saveResolvedOAuthTokens } from "./token-store.ts";
+import { refreshAccessToken } from "./oauth.ts";
 import type { GmailApiAttachmentResponse, GmailAttachmentContent, GmailMessageAttachment, GmailSavedAttachment, GmailTokenStorePaths } from "./types.ts";
 
 const GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
+const ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000;
 export const DEFAULT_ATTACHMENT_DOWNLOAD_DIRNAME = ".gmail-attachments";
 
 function decodeAttachmentData(data: string | undefined): Buffer {
@@ -17,16 +19,41 @@ function decodeAttachmentData(data: string | undefined): Buffer {
 	return Buffer.from(padded, "base64");
 }
 
-async function readAccessToken(paths?: GmailTokenStorePaths): Promise<string> {
+async function getStoredTokensOrThrow(paths?: GmailTokenStorePaths) {
 	const tokens = await loadOAuthTokens(paths);
 	if (!tokens?.accessToken) {
 		throw new Error("Gmail is not connected yet. Run /gmail-auth status and complete /gmail-auth exchange before using Gmail tools.");
 	}
+	return tokens;
+}
 
+async function refreshStoredAccessToken(paths?: GmailTokenStorePaths) {
+	const existingTokens = await getStoredTokensOrThrow(paths);
+	if (!existingTokens.refreshToken) {
+		throw new Error("Gmail access expired or was revoked, and no refresh token is stored locally. Re-run /gmail-auth exchange to reconnect Gmail.");
+	}
+
+	const credentials = await loadOAuthClientCredentials(paths);
+	const refreshedTokens = await refreshAccessToken(credentials, existingTokens.refreshToken);
+	const mergedTokens = {
+		...existingTokens,
+		...refreshedTokens,
+		refreshToken: refreshedTokens.refreshToken ?? existingTokens.refreshToken,
+	};
+	await saveResolvedOAuthTokens(mergedTokens, paths);
+	return mergedTokens;
+}
+
+async function readAccessToken(paths?: GmailTokenStorePaths): Promise<string> {
+	const tokens = await getStoredTokensOrThrow(paths);
+	const expiresSoon = typeof tokens.expiryDate === "number" && tokens.expiryDate <= Date.now() + ACCESS_TOKEN_REFRESH_SKEW_MS;
+	if (expiresSoon && tokens.refreshToken) {
+		return (await refreshStoredAccessToken(paths)).accessToken;
+	}
 	return tokens.accessToken;
 }
 
-export async function fetchAttachmentContent(messageId: string, attachmentId: string, paths?: GmailTokenStorePaths): Promise<GmailAttachmentContent> {
+export async function fetchAttachmentContent(messageId: string, attachmentId: string, paths?: GmailTokenStorePaths, hasRetried = false): Promise<GmailAttachmentContent> {
 	const trimmedMessageId = messageId.trim();
 	if (!trimmedMessageId) {
 		throw new Error("Message id required. List or search Gmail first, then choose a message attachment.");
@@ -60,6 +87,16 @@ export async function fetchAttachmentContent(messageId: string, attachmentId: st
 		const apiMessage = typeof apiError?.message === "string" ? apiError.message : undefined;
 
 		if (response.status === 401) {
+			if (!hasRetried) {
+				try {
+					await refreshStoredAccessToken(paths);
+					return fetchAttachmentContent(trimmedMessageId, trimmedAttachmentId, paths, true);
+				} catch (refreshError) {
+					if (refreshError instanceof Error) {
+						throw refreshError;
+					}
+				}
+			}
 			throw new Error("Gmail access expired or was revoked. Re-run /gmail-auth exchange to refresh your local Gmail tokens.");
 		}
 

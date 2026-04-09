@@ -1,5 +1,6 @@
 import { fetchAttachmentContent } from "./attachment-client.ts";
-import { loadOAuthTokens } from "./token-store.ts";
+import { loadOAuthClientCredentials, loadOAuthTokens, saveResolvedOAuthTokens } from "./token-store.ts";
+import { refreshAccessToken } from "./oauth.ts";
 import { listMessageAttachments, parseGmailMessageDetail, summarizeGmailMessage } from "./message-parser.ts";
 import type {
 	GmailApiListMessagesResponse,
@@ -17,6 +18,7 @@ const GMAIL_API_BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
 const DEFAULT_MAX_RESULTS = 10;
 const MAX_RESULTS_LIMIT = 25;
 const SUMMARY_HEADERS = ["From", "Subject", "Date"];
+const ACCESS_TOKEN_REFRESH_SKEW_MS = 60_000;
 
 function clampMaxResults(value: number | undefined): number {
 	if (value === undefined || Number.isNaN(value)) {
@@ -31,16 +33,46 @@ function buildQuery(options: GmailListMessagesOptions | GmailSearchMessagesOptio
 	return queryParts.length > 0 ? queryParts.join(" ") : undefined;
 }
 
-export async function readAccessToken(paths?: GmailTokenStorePaths): Promise<string> {
+async function getStoredTokensOrThrow(paths?: GmailTokenStorePaths) {
 	const tokens = await loadOAuthTokens(paths);
 	if (!tokens?.accessToken) {
 		throw new Error("Gmail is not connected yet. Run /gmail-auth status and complete /gmail-auth exchange before using Gmail tools.");
 	}
+	return tokens;
+}
 
+async function refreshStoredAccessToken(paths?: GmailTokenStorePaths) {
+	const existingTokens = await getStoredTokensOrThrow(paths);
+	if (!existingTokens.refreshToken) {
+		throw new Error("Gmail access expired or was revoked, and no refresh token is stored locally. Re-run /gmail-auth exchange to reconnect Gmail.");
+	}
+
+	const credentials = await loadOAuthClientCredentials(paths);
+	const refreshedTokens = await refreshAccessToken(credentials, existingTokens.refreshToken);
+	const mergedTokens = {
+		...existingTokens,
+		...refreshedTokens,
+		refreshToken: refreshedTokens.refreshToken ?? existingTokens.refreshToken,
+	};
+	await saveResolvedOAuthTokens(mergedTokens, paths);
+	return mergedTokens;
+}
+
+async function getUsableTokens(paths?: GmailTokenStorePaths) {
+	const tokens = await getStoredTokensOrThrow(paths);
+	const expiresSoon = typeof tokens.expiryDate === "number" && tokens.expiryDate <= Date.now() + ACCESS_TOKEN_REFRESH_SKEW_MS;
+	if (expiresSoon && tokens.refreshToken) {
+		return refreshStoredAccessToken(paths);
+	}
+	return tokens;
+}
+
+export async function readAccessToken(paths?: GmailTokenStorePaths): Promise<string> {
+	const tokens = await getUsableTokens(paths);
 	return tokens.accessToken;
 }
 
-export async function fetchGmailJson<T>(path: string, init: RequestInit = {}, paths?: GmailTokenStorePaths): Promise<T> {
+export async function fetchGmailJson<T>(path: string, init: RequestInit = {}, paths?: GmailTokenStorePaths, hasRetried = false): Promise<T> {
 	const accessToken = await readAccessToken(paths);
 	const headers = new Headers(init.headers);
 	headers.set("Authorization", `Bearer ${accessToken}`);
@@ -66,6 +98,16 @@ export async function fetchGmailJson<T>(path: string, init: RequestInit = {}, pa
 		const apiMessage = typeof apiError?.message === "string" ? apiError.message : undefined;
 
 		if (response.status === 401) {
+			if (!hasRetried) {
+				try {
+					await refreshStoredAccessToken(paths);
+					return fetchGmailJson<T>(path, init, paths, true);
+				} catch (refreshError) {
+					if (refreshError instanceof Error) {
+						throw refreshError;
+					}
+				}
+			}
 			throw new Error("Gmail access expired or was revoked. Re-run /gmail-auth exchange to refresh your local Gmail tokens.");
 		}
 
