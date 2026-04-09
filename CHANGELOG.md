@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.2 - 2026-04-09
+
+### Added
+- HTML email sending through `gmail_send_email` via `htmlBody`
+- optional local file attachments through `gmail_send_email.attachments`
+- multipart MIME generation for HTML + attachment emails
+- send confirmation now includes email format and attachment list
+- test coverage for HTML email and attachment sending
+
+### Changed
+- `gmail_send_email` now accepts `body`, `htmlBody`, or both
+- outbound send helper now supports generic Gmail MIME messages, not just plain-text payloads
+- README updated to document HTML and attachment workflows
+
 ## 0.1.1 - 2026-04-09
 
 ### Added

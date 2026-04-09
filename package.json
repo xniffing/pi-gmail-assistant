@@ -1,6 +1,6 @@
 {
   "name": "@xniffing/pi-gmail-assistant",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Gmail extension for Pi with OAuth setup, inbox tools, attachment downloads, and safe send confirmation.",
   "keywords": [
     "pi",

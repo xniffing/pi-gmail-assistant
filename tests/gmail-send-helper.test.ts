@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { preparePlainTextMessage, sendPlainTextMessage } from "../send-mail.ts";
+import { prepareMessage, preparePlainTextMessage, sendMessage, sendPlainTextMessage } from "../send-mail.ts";
 import { saveOAuthTokensForAccount } from "../token-store.ts";
 
 const TEST_STATE_ROOT = join(homedir(), ".config", "automation", "gmail");
@@ -90,6 +90,25 @@ test("sendPlainTextMessage posts the encoded raw message and returns normalized 
 	});
 });
 
+test("prepareMessage supports HTML and attachments", async () => {
+	await withTempProject(async (projectRoot) => {
+		const attachmentPath = join(projectRoot, "sample.txt");
+		await writeFile(attachmentPath, "attachment text");
+		const prepared = await prepareMessage({
+			to: "person@example.com",
+			subject: "Hello html",
+			htmlBody: "<p>Hello <strong>world</strong></p>",
+			attachments: [{ path: attachmentPath }],
+		});
+
+		assert.equal(prepared.attachments.length, 1);
+		assert.equal(prepared.attachments[0]?.filename, "sample.txt");
+		assert.match(Buffer.from(prepared.raw, "base64url").toString("utf8"), /multipart\/mixed/);
+		assert.match(Buffer.from(prepared.raw, "base64url").toString("utf8"), /Content-Type: text\/html; charset=utf-8/);
+		assert.match(Buffer.from(prepared.raw, "base64url").toString("utf8"), /Content-Disposition: attachment; filename="sample.txt"/);
+	});
+});
+
 test("sendPlainTextMessage surfaces validation and scope failures clearly", async () => {
 	assert.throws(
 		() => preparePlainTextMessage({ to: "not-an-email", subject: "Hello", body: "Body" }),
@@ -106,6 +125,35 @@ test("sendPlainTextMessage surfaces validation and scope failures clearly", asyn
 				() => sendPlainTextMessage({ to: "person@example.com", subject: "Hello", body: "Body" }),
 				/Re-run \/gmail-auth exchange after approving the Gmail send scope/,
 			);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+test("sendMessage posts HTML messages with attachments", async () => {
+	await withTempProject(async (projectRoot) => {
+		await writeTokens(projectRoot);
+		const attachmentPath = join(projectRoot, "sample.txt");
+		await writeFile(attachmentPath, "attachment text");
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = async (_url, init) => {
+			const payload = JSON.parse(String(init?.body)) as { raw: string };
+			const decoded = Buffer.from(payload.raw, "base64url").toString("utf8");
+			assert.match(decoded, /multipart\/mixed/);
+			assert.match(decoded, /Content-Type: text\/html; charset=utf-8/);
+			assert.match(decoded, /Content-Disposition: attachment; filename="sample.txt"/);
+			return new Response(JSON.stringify({ id: "sent-html-1", labelIds: ["SENT"] }), { status: 200, headers: { "content-type": "application/json" } });
+		};
+		try {
+			const result = await sendMessage({
+				to: "person@example.com",
+				subject: "HTML",
+				htmlBody: "<p>Hello</p>",
+				attachments: [{ path: attachmentPath }],
+			});
+			assert.equal(result.hasHtmlBody, true);
+			assert.equal(result.attachments.length, 1);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}

@@ -150,13 +150,28 @@ export interface GmailSearchMessagesOptions {
 	maxResults?: number;
 }
 
+export interface GmailSendAttachmentInput {
+	path: string;
+	filename?: string;
+	contentType?: string;
+}
+
+export interface GmailPreparedAttachment {
+	path: string;
+	filename: string;
+	contentType: string;
+	size: number;
+}
+
 export interface GmailSendMessageRequest {
 	to: GmailAddressInput;
 	subject: string;
-	body: string;
+	body?: string;
+	htmlBody?: string;
 	cc?: GmailAddressInput;
 	bcc?: GmailAddressInput;
 	replyTo?: string;
+	attachments?: GmailSendAttachmentInput[];
 }
 
 export interface GmailPreparedSendMessage {
@@ -166,8 +181,10 @@ export interface GmailPreparedSendMessage {
 	bcc: string[];
 	replyTo?: string;
 	subject: string;
-	body: string;
+	body?: string;
+	htmlBody?: string;
 	bodyPreview: string;
+	attachments: GmailPreparedAttachment[];
 }
 
 export interface GmailAttachmentContent {
@@ -198,4 +215,6 @@ export interface GmailSendMessageResult {
 	replyTo?: string;
 	subject: string;
 	bodyPreview: string;
+	attachments: GmailPreparedAttachment[];
+	hasHtmlBody: boolean;
 }

@@ -1,6 +1,6 @@
 # Gmail Pi extension
 
-A Pi extension for Gmail OAuth setup plus safe Gmail workflows for listing inbox mail, searching Gmail, reading a selected message, inspecting a message's attachments, downloading a selected attachment to disk, and sending plain-text outbound email with explicit user confirmation.
+A Pi extension for Gmail OAuth setup plus safe Gmail workflows for listing inbox mail, searching Gmail, reading a selected message, inspecting a message's attachments, downloading a selected attachment to disk, and sending outbound email with plain-text or HTML bodies plus optional file attachments with explicit user confirmation.
 
 ## Install as a Pi package
 
@@ -9,7 +9,7 @@ After publishing to npm, add it to Pi through `settings.json`:
 ```json
 {
   "packages": [
-    "npm:@xniffing/pi-gmail-assistant@0.1.1"
+    "npm:@xniffing/pi-gmail-assistant@0.1.2"
   ]
 }
 ```
@@ -41,7 +41,7 @@ npm pack --dry-run
 - lets Pi read one message by id without dumping raw Gmail API payloads
 - lets Pi list a message's attachments with concise metadata instead of raw MIME structure
 - lets Pi download a selected attachment into a safe project-local path by default
-- lets Pi send plain-text Gmail messages only after the operator explicitly confirms the recipient, subject, and body preview
+- lets Pi send Gmail messages with plain-text or HTML bodies and optional file attachments only after the operator explicitly confirms the recipient, subject, body preview, and attachments
 - avoids printing client secrets or refresh tokens into normal chat output
 
 ## Required Google Cloud setup
@@ -60,6 +60,8 @@ The extension currently requests:
 - `https://www.googleapis.com/auth/gmail.send`
 
 Minimum scope for outbound send is `gmail.send`. The extension also keeps `gmail.modify` because the inbox-reading workflows from AU-002 already rely on broader mailbox access.
+
+HTML email and file attachments are sent through the same Gmail send scope; no additional Gmail OAuth scope is required.
 
 If you added credentials before send support existed, rerun `/gmail-auth exchange` so the stored local tokens include the Gmail send scope.
 
@@ -237,13 +239,14 @@ Required fields:
 
 - `to` — one email address, a comma-separated string, or an array of email addresses
 - `subject` — a single-line subject
-- `body` — plain-text body content
+- one of `body`, `htmlBody`, or both
 
 Optional fields:
 
 - `cc` — one or more CC recipients
 - `bcc` — one or more BCC recipients
 - `replyTo` — a single reply-to address
+- `attachments` — local file attachments with `path`, plus optional `filename` and `contentType`
 
 Example structured tool shape:
 
@@ -253,6 +256,10 @@ Example structured tool shape:
   "cc": ["manager@example.com"],
   "subject": "Weekly update",
   "body": "Finished the release checklist and sent the build to QA.",
+  "htmlBody": "<p>Finished the <strong>release checklist</strong> and sent the build to QA.</p>",
+  "attachments": [
+    { "path": "docs/release-notes.md", "filename": "release-notes.md" }
+  ],
   "replyTo": "me@example.com"
 }
 ```
@@ -264,20 +271,22 @@ Example structured tool shape:
 - primary recipients (`To`)
 - optional `Cc`, `Bcc`, and `Reply-To`
 - subject
-- concise plain-text body preview
+- whether the email is plain-text or HTML
+- concise body preview
+- attachment names and sizes
 
 The operator must approve that dialog before the Gmail API call is made. If the operator cancels, the tool returns a cancellation result and nothing is sent.
 
 ### Current send limitations
 
-Version 1 intentionally keeps outbound mail narrow and safe:
+Version 1 still keeps outbound mail relatively narrow and safe:
 
-- plain-text only
-- no attachments
-- no HTML composition
+- supports plain-text and HTML bodies
+- supports local file attachments
 - no explicit thread/reply support
 - no background or bootstrap sends outside the tool flow
 - interactive confirmation required before every send
+- attachment content must come from local files, not remote URLs
 
 ### Safe usage examples
 

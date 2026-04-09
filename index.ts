@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import { getDefaultAttachmentDownloadDir, saveAttachmentContent } from "./attachment-client.ts";
 import { getMessageAttachmentContent, getMessageDetail, listInboxMessages, listMessageAttachmentsForMessage, searchMessages } from "./gmail-client.ts";
 import { buildGoogleConsentUrl, exchangeAuthorizationCode, fetchConnectedGmailAccountEmail } from "./oauth.ts";
-import { preparePlainTextMessage, sendPlainTextMessage } from "./send-mail.ts";
+import { prepareMessage, sendMessage } from "./send-mail.ts";
 import { getGmailAuthStatus, getDefaultTokenStorePaths, loadOAuthClientCredentials, saveOAuthClientCredentials, saveOAuthTokensForAccount } from "./token-store.ts";
 import type {
 	GmailMessageAttachment,
@@ -101,7 +101,9 @@ function formatSendConfirmation(prepared: GmailPreparedSendMessage): string {
 		formatRecipientLine("Bcc", prepared.bcc),
 		prepared.replyTo ? `Reply-To: ${prepared.replyTo}` : undefined,
 		`Subject: ${prepared.subject}`,
+		prepared.htmlBody ? "Format: HTML email" : "Format: plain text email",
 		`Preview: ${prepared.bodyPreview}`,
+		prepared.attachments.length > 0 ? `Attachments: ${prepared.attachments.map((attachment) => `${attachment.filename} (${formatBytes(attachment.size)})`).join(", ")}` : "Attachments: none",
 		"",
 		"This tool sends immediately after confirmation. Cancel if anything looks wrong.",
 	].filter((line): line is string => line !== undefined).join("\n");
@@ -115,6 +117,8 @@ function formatSendResult(result: GmailSendMessageResult): string {
 		formatRecipientLine("cc", result.cc),
 		formatRecipientLine("bcc", result.bcc),
 		result.replyTo ? `reply-to: ${result.replyTo}` : undefined,
+		`format: ${result.hasHtmlBody ? "html" : "plain-text"}`,
+		`attachments: ${result.attachments.length}`,
 		`preview: ${result.bodyPreview}`,
 	].filter((line): line is string => line !== undefined).join("\n");
 }
@@ -422,8 +426,8 @@ export default function gmailExtension(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "gmail_send_email",
 		label: "Send Gmail",
-		description: "Send a plain-text Gmail message only after the operator explicitly confirms the recipient, subject, and preview.",
-		promptSnippet: "Send a plain-text Gmail email only after collecting explicit confirmation from the operator.",
+		description: "Send a Gmail message with plain text or HTML body, with optional file attachments, only after the operator explicitly confirms the recipient, subject, preview, and attachments.",
+		promptSnippet: "Send a Gmail email with plain text or HTML content, optionally with attachments, only after collecting explicit confirmation from the operator.",
 		promptGuidelines: [
 			"Use gmail_send_email only when the user clearly wants to send an email, not merely draft or summarize one.",
 			"Always rely on the built-in confirmation step before sending. If the user sounds unsure, ask clarifying questions first.",
@@ -438,8 +442,9 @@ export default function gmailExtension(pi: ExtensionAPI) {
 					],
 					description: "Primary recipient email address or addresses.",
 				},
-				subject: { type: "string", description: "Plain-text subject line for the outgoing email." },
-				body: { type: "string", description: "Plain-text body to send. HTML and attachments are not supported." },
+				subject: { type: "string", description: "Subject line for the outgoing email." },
+				body: { type: "string", description: "Optional plain-text body. Provide this, htmlBody, or both." },
+				htmlBody: { type: "string", description: "Optional HTML body. Use email-compatible HTML." },
 				cc: {
 					oneOf: [
 						{ type: "string", description: "Optional CC recipient or comma-separated recipient list." },
@@ -455,12 +460,26 @@ export default function gmailExtension(pi: ExtensionAPI) {
 					description: "Optional BCC recipients.",
 				},
 				replyTo: { type: "string", description: "Optional Reply-To email address." },
+				attachments: {
+					type: "array",
+					description: "Optional local file attachments to include.",
+					items: {
+						type: "object",
+						properties: {
+							path: { type: "string", description: "Path to a local file to attach." },
+							filename: { type: "string", description: "Optional override filename shown in the email." },
+							contentType: { type: "string", description: "Optional MIME type override, e.g. text/html or application/pdf." },
+						},
+						required: ["path"],
+						additionalProperties: false,
+					},
+				},
 			},
-			required: ["to", "subject", "body"],
+			required: ["to", "subject"],
 			additionalProperties: false,
 		},
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const prepared = preparePlainTextMessage(params);
+			const prepared = await prepareMessage(params);
 			if (!ctx.hasUI) {
 				throw new Error("gmail_send_email requires interactive confirmation so the operator can review recipients, subject, and body preview before sending.");
 			}
@@ -473,7 +492,7 @@ export default function gmailExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			const message = await sendPlainTextMessage(params);
+			const message = await sendMessage(params);
 			return {
 				content: [{ type: "text", text: formatSendResult(message) }],
 				details: { message },

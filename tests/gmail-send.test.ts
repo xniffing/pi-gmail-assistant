@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -114,6 +114,8 @@ test("gmail_send_email shows confirmation details and only sends after approval"
 			assert.match(confirmMessages[0] ?? "", /To: person@example.com/);
 			assert.match(confirmMessages[0] ?? "", /Cc: leader@example.com/);
 			assert.match(confirmMessages[0] ?? "", /Subject: Quarterly update/);
+			assert.match(confirmMessages[0] ?? "", /Format: plain text email/);
+			assert.match(confirmMessages[0] ?? "", /Attachments: none/);
 			assert.match(confirmMessages[0] ?? "", /Preview: Line 1 Line 2/);
 			assert.match(result.content[0]?.text ?? "", /Sent Gmail message: Quarterly update/);
 		} finally {
@@ -146,6 +148,37 @@ test("gmail_send_email cancels safely when confirmation is rejected", async () =
 
 			assert.equal(fetchCalled, false);
 			assert.match(result.content[0]?.text ?? "", /cancelled before contacting Gmail/);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+});
+
+test("gmail_send_email supports htmlBody and attachments in confirmation", async () => {
+	await withTempProject(async (projectRoot) => {
+		await writeTokens(projectRoot);
+		const attachmentPath = join(projectRoot, "brief.html");
+		await writeFile(attachmentPath, "<p>Attachment</p>");
+		const originalFetch = globalThis.fetch;
+		const confirmMessages: string[] = [];
+		globalThis.fetch = async () => new Response(JSON.stringify({ id: "sent-html-1", labelIds: ["SENT"] }), { status: 200, headers: { "content-type": "application/json" } });
+		try {
+			const pi = createMockPi();
+			gmailExtension(pi as never);
+			const sendTool = findTool(pi.tools, "gmail_send_email");
+			const ctx = createToolContext(async (_title, message) => {
+				confirmMessages.push(message);
+				return true;
+			});
+			const result = await sendTool.execute("call-html", {
+				to: "person@example.com",
+				subject: "HTML message",
+				htmlBody: "<p>Hello <strong>world</strong></p>",
+				attachments: [{ path: attachmentPath }],
+			}, undefined, undefined, ctx);
+			assert.match(confirmMessages[0] ?? "", /Format: HTML email/);
+			assert.match(confirmMessages[0] ?? "", /Attachments: brief.html/);
+			assert.match(result.content[0]?.text ?? "", /format: html/);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
