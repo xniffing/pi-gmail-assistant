@@ -1,0 +1,55 @@
+{
+  "name": "@xniffing/pi-gmail-assistant",
+  "version": "0.1.0",
+  "description": "Gmail extension for Pi with OAuth setup, inbox tools, attachment downloads, and safe send confirmation.",
+  "keywords": [
+    "pi",
+    "pi-agent",
+    "gmail",
+    "extension",
+    "email"
+  ],
+  "license": "MIT",
+  "author": "xniffing",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xniffing/pi-gmail-assistant.git"
+  },
+  "homepage": "https://github.com/xniffing/pi-gmail-assistant#readme",
+  "bugs": {
+    "url": "https://github.com/xniffing/pi-gmail-assistant/issues"
+  },
+  "type": "module",
+  "files": [
+    "index.ts",
+    "gmail-client.ts",
+    "message-parser.ts",
+    "attachment-client.ts",
+    "oauth.ts",
+    "send-mail.ts",
+    "token-store.ts",
+    "types.ts",
+    "README.md",
+    "LICENSE",
+    "tests/*.test.ts"
+  ],
+  "scripts": {
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "build": "node --experimental-strip-types --input-type=module --eval \"await import('./index.ts'); await import('./oauth.ts'); await import('./token-store.ts'); await import('./gmail-client.ts'); await import('./message-parser.ts'); await import('./attachment-client.ts'); await import('./send-mail.ts'); await import('./types.ts'); console.log('gmail-extension-build-ok');\"",
+    "pack:check": "npm pack --dry-run"
+  },
+  "exports": {
+    ".": "./index.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

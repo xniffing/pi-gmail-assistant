@@ -1,0 +1,8 @@
+.git/
+node_modules/
+.gmail-attachments/
+*.log
+.DS_Store
+coverage/
+.pi/
+worktrees/
