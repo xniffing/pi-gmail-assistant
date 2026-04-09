@@ -1,6 +1,6 @@
 {
   "name": "@xniffing/pi-gmail-assistant",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Gmail extension for Pi with OAuth setup, inbox tools, attachment downloads, and safe send confirmation.",
   "keywords": [
     "pi",
@@ -34,7 +34,7 @@
     "tests/*.test.ts"
   ],
   "scripts": {
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts",
     "build": "node --experimental-strip-types --input-type=module --eval \"await import('./index.ts'); await import('./oauth.ts'); await import('./token-store.ts'); await import('./gmail-client.ts'); await import('./message-parser.ts'); await import('./attachment-client.ts'); await import('./send-mail.ts'); await import('./types.ts'); console.log('gmail-extension-build-ok');\"",
     "pack:check": "npm pack --dry-run"
   },

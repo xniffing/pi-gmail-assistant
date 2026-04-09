@@ -48,6 +48,7 @@ export interface GmailAuthStatus {
 	paths: GmailTokenStorePaths;
 	hasCredentials: boolean;
 	hasTokens: boolean;
+	activeAccountEmail?: string;
 	tokenExpiryIso?: string;
 }
 

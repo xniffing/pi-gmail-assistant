@@ -2,9 +2,9 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 
 import { getDefaultAttachmentDownloadDir, saveAttachmentContent } from "./attachment-client.ts";
 import { getMessageAttachmentContent, getMessageDetail, listInboxMessages, listMessageAttachmentsForMessage, searchMessages } from "./gmail-client.ts";
-import { buildGoogleConsentUrl, exchangeAuthorizationCode } from "./oauth.ts";
+import { buildGoogleConsentUrl, exchangeAuthorizationCode, fetchConnectedGmailAccountEmail } from "./oauth.ts";
 import { preparePlainTextMessage, sendPlainTextMessage } from "./send-mail.ts";
-import { getGmailAuthStatus, getDefaultTokenStorePaths, loadOAuthClientCredentials, saveOAuthClientCredentials, saveOAuthTokens } from "./token-store.ts";
+import { getGmailAuthStatus, getDefaultTokenStorePaths, loadOAuthClientCredentials, saveOAuthClientCredentials, saveOAuthTokensForAccount } from "./token-store.ts";
 import type {
 	GmailMessageAttachment,
 	GmailMessageDetail,
@@ -194,8 +194,9 @@ async function runStartFlow(ctx: ExtensionCommandContext): Promise<void> {
 	}
 
 	const tokens = await exchangeAuthorizationCode(credentials, authorizationInput);
-	await saveOAuthTokens(tokens, paths);
-	ctx.ui.notify("Gmail OAuth tokens saved locally.", "success");
+	const accountEmail = await fetchConnectedGmailAccountEmail(tokens.accessToken);
+	const savedPaths = await saveOAuthTokensForAccount(accountEmail, tokens);
+	ctx.ui.notify(`Gmail OAuth tokens saved locally for ${accountEmail} at ${savedPaths.tokenPath}`, "success");
 }
 
 async function handleExchange(args: string, ctx: ExtensionCommandContext): Promise<void> {
@@ -213,8 +214,9 @@ async function handleExchange(args: string, ctx: ExtensionCommandContext): Promi
 	}
 
 	const tokens = await exchangeAuthorizationCode(credentials, authorizationInput);
-	await saveOAuthTokens(tokens, paths);
-	ctx.ui.notify("Gmail OAuth tokens saved locally.", "success");
+	const accountEmail = await fetchConnectedGmailAccountEmail(tokens.accessToken);
+	const savedPaths = await saveOAuthTokensForAccount(accountEmail, tokens);
+	ctx.ui.notify(`Gmail OAuth tokens saved locally for ${accountEmail} at ${savedPaths.tokenPath}`, "success");
 }
 
 async function handleStatus(ctx: ExtensionCommandContext): Promise<void> {
@@ -224,6 +226,7 @@ async function handleStatus(ctx: ExtensionCommandContext): Promise<void> {
 		[
 			`Credentials stored: ${status.hasCredentials ? "yes" : "no"}`,
 			`Tokens stored: ${status.hasTokens ? "yes" : "no"}`,
+			status.activeAccountEmail ? `Active account: ${status.activeAccountEmail}` : "Active account: not set",
 			`Credential file: ${status.paths.credentialsPath}`,
 			`Token file: ${status.paths.tokenPath}`,
 			status.tokenExpiryIso ? `Access token expiry: ${status.tokenExpiryIso}` : "Access token expiry: not available",

@@ -9,7 +9,7 @@ After publishing to npm, add it to Pi through `settings.json`:
 ```json
 {
   "packages": [
-    "npm:@xniffing/pi-gmail-assistant@0.1.0"
+    "npm:@xniffing/pi-gmail-assistant@0.1.1"
   ]
 }
 ```
@@ -67,10 +67,11 @@ If you added credentials before send support existed, rerun `/gmail-auth exchang
 
 Secrets are stored outside the repository under your home directory:
 
-- credentials: `~/.config/automation/gmail/<project-name>-<hash>/google-oauth-client.json`
-- tokens: `~/.config/automation/gmail/<project-name>-<hash>/gmail-tokens.json`
+- shared OAuth client credentials: `~/.config/automation/gmail/google-oauth-client.json`
+- active account marker: `~/.config/automation/gmail/active-account.json`
+- per-account tokens: `~/.config/automation/gmail/accounts/<email-slug>/gmail-tokens.json`
 
-The `<hash>` portion is derived from the project path so multiple checkouts do not overwrite each other.
+Tokens are now scoped to the connected Gmail account instead of the current project path. That means changing projects, folders, or worktrees should no longer make the extension look unauthenticated once an account has been connected.
 
 Files are written with private permissions where possible. Do **not** paste OAuth client JSON or token JSON into repository files.
 
@@ -87,6 +88,8 @@ Before Pi can read or send Gmail, complete the local auth flow introduced in AU-
 ```
 
 If tokens are missing, expired, revoked, or missing the send scope, Gmail tools will tell you to rerun `/gmail-auth exchange`.
+
+If you previously authenticated with an older project-scoped version of the extension, rerun `/gmail-auth exchange` once so the active account can be detected and saved into the new account-scoped token layout.
 
 ## Inbox workflows
 

@@ -8,6 +8,7 @@ import { GMAIL_OAUTH_SCOPES } from "./types.ts";
 
 const GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
+const GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile";
 
 export function parseOAuthClientCredentials(input: string | GoogleOAuthCredentialsFile): GoogleOAuthClientCredentials {
 	const parsed = typeof input === "string" ? (JSON.parse(input) as GoogleOAuthCredentialsFile) : input;
@@ -112,4 +113,27 @@ export async function exchangeAuthorizationCode(
 		scope: typeof payload.scope === "string" ? payload.scope : undefined,
 		tokenType: typeof payload.token_type === "string" ? payload.token_type : undefined,
 	};
+}
+
+export async function fetchConnectedGmailAccountEmail(accessToken: string): Promise<string> {
+	const response = await fetch(GMAIL_PROFILE_URL, {
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+			Accept: "application/json",
+		},
+	});
+
+	const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!response.ok) {
+		const message = typeof payload.error === "object" && payload.error !== null && typeof (payload.error as Record<string, unknown>).message === "string"
+			? (payload.error as Record<string, unknown>).message as string
+			: `Failed to fetch Gmail profile with status ${response.status}`;
+		throw new Error(`Google OAuth succeeded, but Gmail profile lookup failed: ${message}`);
+	}
+
+	if (typeof payload.emailAddress !== "string" || payload.emailAddress.trim() === "") {
+		throw new Error("Google OAuth succeeded, but Gmail profile lookup did not return an email address.");
+	}
+
+	return payload.emailAddress.trim().toLowerCase();
 }

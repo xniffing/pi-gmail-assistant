@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import gmailExtension from "../index.ts";
-import { getDefaultTokenStorePaths } from "../token-store.ts";
+import { saveOAuthTokensForAccount } from "../token-store.ts";
 
 interface RegisteredTool {
 	name: string;
@@ -48,22 +48,31 @@ function createToolContext(confirmImpl: ToolContext["ui"]["confirm"], hasUI = tr
 	};
 }
 
+const TEST_STATE_ROOT = join(homedir(), ".config", "automation", "gmail");
+const TEST_ACCOUNT_DIR = join(TEST_STATE_ROOT, "accounts", "test-example-com");
+const TEST_ACTIVE_ACCOUNT_PATH = join(TEST_STATE_ROOT, "active-account.json");
+
+async function cleanupTestAuthState(): Promise<void> {
+	await rm(TEST_ACCOUNT_DIR, { recursive: true, force: true });
+	await rm(TEST_ACTIVE_ACCOUNT_PATH, { force: true });
+}
+
 async function withTempProject(run: (projectRoot: string) => Promise<void>): Promise<void> {
 	const projectRoot = await mkdtemp(join(tmpdir(), "gmail-send-tool-"));
 	const previousCwd = process.cwd();
+	await cleanupTestAuthState();
 	process.chdir(projectRoot);
 	try {
 		await run(projectRoot);
 	} finally {
 		process.chdir(previousCwd);
 		await rm(projectRoot, { recursive: true, force: true });
+		await cleanupTestAuthState();
 	}
 }
 
-async function writeTokens(projectRoot: string): Promise<void> {
-	const paths = getDefaultTokenStorePaths(projectRoot);
-	await mkdir(paths.baseDir, { recursive: true });
-	await writeFile(paths.tokenPath, JSON.stringify({ accessToken: "test-token" }));
+async function writeTokens(_projectRoot: string): Promise<void> {
+	await saveOAuthTokensForAccount("test@example.com", { accessToken: "test-token" });
 }
 
 function findTool(tools: RegisteredTool[], name: string): RegisteredTool {
