@@ -252,7 +252,7 @@ Optional fields:
 - `cc` — one or more CC recipients
 - `bcc` — one or more BCC recipients
 - `replyTo` — a single reply-to address
-- `attachments` — local file attachments with `path`, plus optional `filename` and `contentType`
+- `attachments` — project-local file attachments with `path`, plus optional `filename` and `contentType`
 
 Example structured tool shape:
 
@@ -288,11 +288,12 @@ The operator must approve that dialog before the Gmail API call is made. If the 
 Version 1 still keeps outbound mail relatively narrow and safe:
 
 - supports plain-text and HTML bodies
-- supports local file attachments
+- supports project-local file attachments
 - no explicit thread/reply support
 - no background or bootstrap sends outside the tool flow
 - interactive confirmation required before every send
-- attachment content must come from local files, not remote URLs
+- attachment content must come from project-local files, not remote URLs
+- sensitive local paths such as `~/.ssh/` and the Gmail token store are blocked from attachment use
 
 ### Safe usage examples
 

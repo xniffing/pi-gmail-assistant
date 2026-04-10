@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { prepareMessage, preparePlainTextMessage, sendMessage, sendPlainTextMessage } from "../send-mail.ts";
+import { internals, prepareMessage, preparePlainTextMessage, sendMessage, sendPlainTextMessage } from "../send-mail.ts";
 import { saveOAuthTokensForAccount } from "../token-store.ts";
 
 const TEST_STATE_ROOT = join(homedir(), ".config", "automation", "gmail");
@@ -92,7 +92,7 @@ test("sendPlainTextMessage posts the encoded raw message and returns normalized 
 	});
 });
 
-test("prepareMessage supports HTML and attachments", async () => {
+test("prepareMessage supports HTML and project-local attachments", async () => {
 	await withTempProject(async (projectRoot) => {
 		const attachmentPath = join(projectRoot, "sample.txt");
 		await writeFile(attachmentPath, "attachment text");
@@ -105,10 +105,44 @@ test("prepareMessage supports HTML and attachments", async () => {
 
 		assert.equal(prepared.attachments.length, 1);
 		assert.equal(prepared.attachments[0]?.filename, "sample.txt");
+		assert.equal(prepared.attachments[0]?.path, attachmentPath);
 		assert.match(Buffer.from(prepared.raw, "base64url").toString("utf8"), /multipart\/mixed/);
 		assert.match(Buffer.from(prepared.raw, "base64url").toString("utf8"), /Content-Type: text\/html; charset=utf-8/);
 		assert.match(Buffer.from(prepared.raw, "base64url").toString("utf8"), /Content-Disposition: attachment; filename="sample.txt"/);
 	});
+});
+
+
+test("prepareMessage rejects attachment paths outside the current project", async () => {
+	await withTempProject(async (projectRoot) => {
+		const outsidePath = join(tmpdir(), `outside-${Date.now()}.txt`);
+		await writeFile(outsidePath, "secret");
+		try {
+			await assert.rejects(
+				() => prepareMessage({
+					to: "person@example.com",
+					subject: "Blocked",
+					body: "Body",
+					attachments: [{ path: outsidePath }],
+				}),
+				/current project/,
+			);
+		} finally {
+			await rm(outsidePath, { force: true });
+		}
+	});
+});
+
+
+test("attachment safety helper blocks sensitive local paths", () => {
+	assert.throws(
+		() => internals.assertSafeAttachmentPath(join(homedir(), ".ssh", "id_ed25519"), join(tmpdir(), "gmail-project")),
+		/sensitive local location/,
+	);
+	assert.throws(
+		() => internals.assertSafeAttachmentPath(join(homedir(), ".config", "automation", "gmail", "accounts", "test", "gmail-tokens.json"), join(tmpdir(), "gmail-project")),
+		/sensitive local location/,
+	);
 });
 
 test("sendPlainTextMessage surfaces validation and scope failures clearly", async () => {
