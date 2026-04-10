@@ -391,6 +391,7 @@ Important notes:
 - Keep credentials in the external config path shown by `/gmail-auth status`.
 - Review every send confirmation dialog before approving it.
 - If you rotate or revoke credentials in Google Cloud, rerun `/gmail-auth init` and `/gmail-auth exchange`.
+- See `SECURITY.md` for the current token-storage decision, local-risk model, and rotation/revocation steps.
 
 ## Current capabilities
 
