@@ -58,14 +58,16 @@ npm pack --dry-run
 
 The extension currently requests:
 
-- `https://www.googleapis.com/auth/gmail.modify`
+- `https://www.googleapis.com/auth/gmail.readonly`
 - `https://www.googleapis.com/auth/gmail.send`
 
-Minimum scope for outbound send is `gmail.send`. The extension also keeps `gmail.modify` because the inbox-reading workflows from AU-002 already rely on broader mailbox access.
+Minimum scope for outbound send is `gmail.send`. Inbox listing, search, reads, and attachment inspection use `gmail.readonly` so the extension no longer asks for broader mailbox-modification access.
 
 HTML email and file attachments are sent through the same Gmail send scope; no additional Gmail OAuth scope is required.
 
 If you added credentials before send support existed, rerun `/gmail-auth exchange` so the stored local tokens include the Gmail send scope.
+
+If you authenticated with an older version that requested `gmail.modify`, rerun `/gmail-auth exchange` once so the stored tokens reflect the reduced `gmail.readonly` scope set.
 
 ## Local credential and token storage
 
