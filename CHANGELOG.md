@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.4 - 2026-04-10
+
+### Added
+- OAuth hardening with `state` validation and PKCE (`S256`) for the Gmail auth flow
+- pending OAuth bootstrap-state persistence so `/gmail-auth exchange` can validate the redirect response
+- outbound-attachment safety checks that block sensitive local paths such as `~/.ssh` and the Gmail token store
+- `SECURITY.md` with token-storage rationale plus credential rotation/revocation guidance
+- regression tests for OAuth `state`/PKCE and safe attachment restrictions
+
+### Changed
+- `/gmail-auth exchange` now expects the full Google redirect URL so Pi can verify `state`
+- Gmail send attachments are now limited to project-local files, and send confirmation shows absolute attachment paths
+- Gmail read access now uses `gmail.readonly` instead of `gmail.modify`
+- README installation example updated to `@xniffing/pi-gmail-assistant@0.1.4`
+
+### Upgrade notes
+- Rerun `/gmail-auth start` and `/gmail-auth exchange` after upgrading so stored tokens reflect the hardened OAuth flow and reduced scope set.
+- If you previously attached files from outside the current project, move them into the project first or the send flow will reject them.
+
 ## 0.1.3 - 2026-04-09
 
 ### Added

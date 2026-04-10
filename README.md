@@ -9,7 +9,7 @@ After publishing to npm, add it to Pi through `settings.json`:
 ```json
 {
   "packages": [
-    "npm:@xniffing/pi-gmail-assistant@0.1.3"
+    "npm:@xniffing/pi-gmail-assistant@0.1.4"
   ]
 }
 ```
