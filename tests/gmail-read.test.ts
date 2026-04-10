@@ -28,11 +28,13 @@ const TEST_STATE_ROOT = join(homedir(), ".config", "automation", "gmail");
 const TEST_ACCOUNT_DIR = join(TEST_STATE_ROOT, "accounts", "test-example-com");
 const TEST_ACTIVE_ACCOUNT_PATH = join(TEST_STATE_ROOT, "active-account.json");
 const TEST_SHARED_CREDENTIALS_PATH = join(TEST_STATE_ROOT, "google-oauth-client.json");
+const TEST_BOOTSTRAP_STATE_PATH = join(TEST_STATE_ROOT, "oauth-bootstrap.json");
 
 async function cleanupTestAuthState(): Promise<void> {
 	await rm(TEST_ACCOUNT_DIR, { recursive: true, force: true });
 	await rm(TEST_ACTIVE_ACCOUNT_PATH, { force: true });
 	await rm(TEST_SHARED_CREDENTIALS_PATH, { force: true });
+	await rm(TEST_BOOTSTRAP_STATE_PATH, { force: true });
 }
 
 async function withTempProject(run: (projectRoot: string) => Promise<void>): Promise<void> {

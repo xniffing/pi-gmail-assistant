@@ -36,6 +36,16 @@ export interface GmailOAuthBootstrapState {
 	consentUrl: string;
 	scopes: readonly GmailScope[];
 	redirectUri: string;
+	state: string;
+	codeVerifier: string;
+	codeChallenge: string;
+}
+
+export interface GmailOAuthPendingBootstrap {
+	state: string;
+	codeVerifier: string;
+	redirectUri: string;
+	createdAt: number;
 }
 
 export interface GmailTokenStorePaths {

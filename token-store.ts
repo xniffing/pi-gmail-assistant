@@ -1,4 +1,4 @@
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
@@ -6,6 +6,7 @@ import { homedir } from "node:os";
 import { parseOAuthClientCredentials } from "./oauth.ts";
 import type {
 	GmailAuthStatus,
+	GmailOAuthPendingBootstrap,
 	GmailTokenStorePaths,
 	GoogleOAuthClientCredentials,
 	GoogleOAuthTokenSet,
@@ -14,6 +15,7 @@ import type {
 const LOCAL_STATE_ROOT = join(homedir(), ".config", "automation", "gmail");
 const ACTIVE_ACCOUNT_PATH = join(LOCAL_STATE_ROOT, "active-account.json");
 const SHARED_CREDENTIALS_PATH = join(LOCAL_STATE_ROOT, "google-oauth-client.json");
+const OAUTH_BOOTSTRAP_PATH = join(LOCAL_STATE_ROOT, "oauth-bootstrap.json");
 const TOKEN_FILE_NAME = "gmail-tokens.json";
 
 function getProjectStoreName(projectRoot: string): string {
@@ -117,6 +119,24 @@ async function loadActiveAccountEmail(): Promise<string | undefined> {
 export async function saveOAuthTokens(tokens: GoogleOAuthTokenSet, paths = getDefaultTokenStorePaths()): Promise<void> {
 	await ensurePrivateDirectory(paths.baseDir);
 	await writePrivateJson(paths.tokenPath, tokens);
+}
+
+export async function saveOAuthBootstrapState(state: GmailOAuthPendingBootstrap): Promise<void> {
+	await ensurePrivateDirectory(LOCAL_STATE_ROOT);
+	await writePrivateJson(OAUTH_BOOTSTRAP_PATH, state);
+}
+
+export async function loadOAuthBootstrapState(): Promise<GmailOAuthPendingBootstrap | undefined> {
+	if (!(await pathExists(OAUTH_BOOTSTRAP_PATH))) {
+		return undefined;
+	}
+
+	const rawJson = await readFile(OAUTH_BOOTSTRAP_PATH, "utf8");
+	return JSON.parse(rawJson) as GmailOAuthPendingBootstrap;
+}
+
+export async function clearOAuthBootstrapState(): Promise<void> {
+	await rm(OAUTH_BOOTSTRAP_PATH, { force: true });
 }
 
 export async function saveOAuthTokensForAccount(email: string, tokens: GoogleOAuthTokenSet): Promise<GmailTokenStorePaths> {

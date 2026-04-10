@@ -34,7 +34,7 @@ npm pack --dry-run
 
 - registers a `/gmail-auth` command for first-time setup
 - generates a Google OAuth consent URL for Gmail scopes
-- exchanges an authorization code for Google tokens
+- exchanges a Google OAuth redirect URL for Google tokens after validating `state` and PKCE
 - stores OAuth credentials and tokens outside git-tracked files
 - refreshes expired Gmail access tokens automatically when a stored refresh token is available
 - lets Pi list recent inbox mail with compact previews
@@ -92,6 +92,8 @@ Before Pi can read or send Gmail, complete the local auth flow introduced in AU-
 ```
 
 If tokens are missing, revoked, missing the send scope, or cannot be refreshed automatically, Gmail tools will tell you to rerun `/gmail-auth exchange`.
+
+For the hardened OAuth flow, run `/gmail-auth start` first and paste the **full redirect URL** back into `/gmail-auth exchange` so the extension can verify the returned `state` value and submit the PKCE verifier.
 
 When a refresh token is stored locally, the extension now attempts to refresh expired access tokens automatically before asking you to re-authenticate.
 
@@ -359,6 +361,8 @@ The extension already requests the recommended Google OAuth parameters for durab
 - `access_type=offline`
 - `prompt=consent`
 - `include_granted_scopes=true`
+- `state`
+- PKCE with `code_challenge_method=S256`
 
 These parameters are configured in `oauth.ts` inside `buildGoogleConsentUrl(...)`.
 
@@ -367,6 +371,8 @@ What they do:
 - `access_type=offline` asks Google to return a refresh token so the extension can obtain new short-lived access tokens later.
 - `prompt=consent` forces the Google consent screen, which helps ensure Google returns a refresh token on the initial authorization.
 - `include_granted_scopes=true` helps incremental authorization reuse already granted scopes.
+- `state` protects the local consent flow against redirect mixups and login-CSRF style failures.
+- PKCE binds the returned authorization code to the locally generated verifier before token exchange.
 
 Important notes:
 
