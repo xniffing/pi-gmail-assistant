@@ -2,9 +2,18 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 
 import { getDefaultAttachmentDownloadDir, saveAttachmentContent } from "./attachment-client.ts";
 import { getMessageAttachmentContent, getMessageDetail, listInboxMessages, listMessageAttachmentsForMessage, searchMessages } from "./gmail-client.ts";
-import { buildGoogleConsentUrl, exchangeAuthorizationCode, fetchConnectedGmailAccountEmail } from "./oauth.ts";
+import { buildGoogleConsentUrl, exchangeAuthorizationCode, fetchConnectedGmailAccountEmail, toPendingBootstrapState } from "./oauth.ts";
 import { prepareMessage, sendMessage } from "./send-mail.ts";
-import { getGmailAuthStatus, getDefaultTokenStorePaths, loadOAuthClientCredentials, saveOAuthClientCredentials, saveOAuthTokensForAccount } from "./token-store.ts";
+import {
+	clearOAuthBootstrapState,
+	getGmailAuthStatus,
+	getDefaultTokenStorePaths,
+	loadOAuthBootstrapState,
+	loadOAuthClientCredentials,
+	saveOAuthBootstrapState,
+	saveOAuthClientCredentials,
+	saveOAuthTokensForAccount,
+} from "./token-store.ts";
 import type {
 	GmailMessageAttachment,
 	GmailMessageDetail,
@@ -32,8 +41,8 @@ function getHelpText(paths = getDefaultTokenStorePaths()): string {
 	return [
 		"Gmail auth commands:",
 		`- /${GMAIL_AUTH_COMMAND} init     Paste Google OAuth client JSON and store it outside the repo`,
-		`- /${GMAIL_AUTH_COMMAND} start    Generate a Gmail consent URL and optionally exchange the returned code`,
-		`- /${GMAIL_AUTH_COMMAND} exchange Paste an authorization code or full redirect URL and store tokens locally`,
+		`- /${GMAIL_AUTH_COMMAND} start    Generate a Gmail consent URL and optionally exchange the returned redirect URL`,
+		`- /${GMAIL_AUTH_COMMAND} exchange Paste the full redirect URL from Google and store tokens locally`,
 		`- /${GMAIL_AUTH_COMMAND} status   Show whether local credentials and tokens are configured`,
 		"",
 		"Available Gmail tools after auth:",
@@ -176,40 +185,48 @@ async function runStartFlow(ctx: ExtensionCommandContext): Promise<void> {
 	const paths = getDefaultTokenStorePaths();
 	const credentials = await loadOAuthClientCredentials(paths);
 	const bootstrap = buildGoogleConsentUrl(credentials);
+	await saveOAuthBootstrapState(toPendingBootstrapState(bootstrap));
 
 	await ctx.ui.editor(
-		"Open this Gmail consent URL in your browser, then copy back the code or redirect URL",
+		"Open this Gmail consent URL in your browser, then copy back the full redirect URL",
 		[
 			`Consent URL: ${bootstrap.consentUrl}`,
 			"",
 			`Redirect URI configured in Google Cloud: ${bootstrap.redirectUri}`,
-			"After approval, copy either the authorization code or the full redirect URL and use /gmail-auth exchange.",
+			"After approval, copy the full redirect URL including both code and state, then use /gmail-auth exchange.",
 		].join("\n"),
 	);
 
 	const authorizationInput = await ctx.ui.input(
-		"Paste the Gmail authorization code or full redirect URL",
-		"code=... or https://127.0.0.1/?code=...",
+		"Paste the full Gmail redirect URL",
+		"https://127.0.0.1/?code=...&state=...",
 	);
 
 	if (!authorizationInput?.trim()) {
-		ctx.ui.notify("Consent URL generated. Run /gmail-auth exchange when you have the code.", "info");
+		ctx.ui.notify("Consent URL generated. Run /gmail-auth exchange when you have the full redirect URL.", "info");
 		return;
 	}
 
-	const tokens = await exchangeAuthorizationCode(credentials, authorizationInput);
+	const pendingBootstrap = await loadOAuthBootstrapState();
+	const tokens = await exchangeAuthorizationCode(credentials, authorizationInput, pendingBootstrap);
 	const accountEmail = await fetchConnectedGmailAccountEmail(tokens.accessToken);
 	const savedPaths = await saveOAuthTokensForAccount(accountEmail, tokens);
+	await clearOAuthBootstrapState();
 	ctx.ui.notify(`Gmail OAuth tokens saved locally for ${accountEmail} at ${savedPaths.tokenPath}`, "success");
 }
 
 async function handleExchange(args: string, ctx: ExtensionCommandContext): Promise<void> {
 	const paths = getDefaultTokenStorePaths();
 	const credentials = await loadOAuthClientCredentials(paths);
+	const pendingBootstrap = await loadOAuthBootstrapState();
+	if (!pendingBootstrap) {
+		throw new Error("No pending Gmail OAuth bootstrap found. Run /gmail-auth start first so Pi can generate a consent URL and verify the returned state.");
+	}
+
 	const initialCode = args.trim();
 	const authorizationInput = initialCode || (await ctx.ui.input(
-		"Paste the Gmail authorization code or full redirect URL",
-		"code=... or https://127.0.0.1/?code=...",
+		"Paste the full Gmail redirect URL",
+		"https://127.0.0.1/?code=...&state=...",
 	));
 
 	if (!authorizationInput?.trim()) {
@@ -217,9 +234,10 @@ async function handleExchange(args: string, ctx: ExtensionCommandContext): Promi
 		return;
 	}
 
-	const tokens = await exchangeAuthorizationCode(credentials, authorizationInput);
+	const tokens = await exchangeAuthorizationCode(credentials, authorizationInput, pendingBootstrap);
 	const accountEmail = await fetchConnectedGmailAccountEmail(tokens.accessToken);
 	const savedPaths = await saveOAuthTokensForAccount(accountEmail, tokens);
+	await clearOAuthBootstrapState();
 	ctx.ui.notify(`Gmail OAuth tokens saved locally for ${accountEmail} at ${savedPaths.tokenPath}`, "success");
 }
 

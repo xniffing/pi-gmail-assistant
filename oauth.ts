@@ -1,5 +1,8 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import type {
 	GmailOAuthBootstrapState,
+	GmailOAuthPendingBootstrap,
 	GoogleOAuthClientCredentials,
 	GoogleOAuthCredentialsFile,
 	GoogleOAuthTokenSet,
@@ -30,7 +33,26 @@ export function parseOAuthClientCredentials(input: string | GoogleOAuthCredentia
 	};
 }
 
+function toBase64Url(value: Buffer): string {
+	return value.toString("base64url");
+}
+
+function createPkceCodeVerifier(): string {
+	return toBase64Url(randomBytes(32));
+}
+
+function createPkceCodeChallenge(codeVerifier: string): string {
+	return createHash("sha256").update(codeVerifier).digest("base64url");
+}
+
+function createOAuthState(): string {
+	return toBase64Url(randomBytes(24));
+}
+
 export function buildGoogleConsentUrl(credentials: GoogleOAuthClientCredentials): GmailOAuthBootstrapState {
+	const codeVerifier = createPkceCodeVerifier();
+	const codeChallenge = createPkceCodeChallenge(codeVerifier);
+	const state = createOAuthState();
 	const params = new URLSearchParams({
 		client_id: credentials.clientId,
 		redirect_uri: credentials.redirectUri,
@@ -39,16 +61,31 @@ export function buildGoogleConsentUrl(credentials: GoogleOAuthClientCredentials)
 		access_type: "offline",
 		prompt: "consent",
 		include_granted_scopes: "true",
+		state,
+		code_challenge: codeChallenge,
+		code_challenge_method: "S256",
 	});
 
 	return {
 		consentUrl: `${GOOGLE_OAUTH_AUTHORIZE_URL}?${params.toString()}`,
 		scopes: GMAIL_OAUTH_SCOPES,
 		redirectUri: credentials.redirectUri,
+		state,
+		codeVerifier,
+		codeChallenge,
 	};
 }
 
-export function extractAuthorizationCode(input: string): string {
+export function toPendingBootstrapState(bootstrap: GmailOAuthBootstrapState): GmailOAuthPendingBootstrap {
+	return {
+		state: bootstrap.state,
+		codeVerifier: bootstrap.codeVerifier,
+		redirectUri: bootstrap.redirectUri,
+		createdAt: Date.now(),
+	};
+}
+
+export function extractAuthorizationResponse(input: string, pendingBootstrap?: GmailOAuthPendingBootstrap): { code: string; state?: string } {
 	const trimmed = input.trim();
 	if (!trimmed) {
 		throw new Error("Authorization code cannot be empty.");
@@ -60,10 +97,25 @@ export function extractAuthorizationCode(input: string): string {
 		if (!code) {
 			throw new Error("Redirect URL did not contain a code query parameter.");
 		}
-		return code;
+
+		const state = url.searchParams.get("state") ?? undefined;
+		if (pendingBootstrap) {
+			if (!state) {
+				throw new Error("Redirect URL did not contain a state query parameter. Restart with /gmail-auth start and paste the full redirect URL after approval.");
+			}
+			if (state !== pendingBootstrap.state) {
+				throw new Error("OAuth state mismatch. Restart with /gmail-auth start and complete the consent flow again.");
+			}
+		}
+
+		return { code, state };
 	}
 
-	return trimmed;
+	if (pendingBootstrap) {
+		throw new Error("Paste the full redirect URL returned by Google so Pi can verify OAuth state before exchanging the code.");
+	}
+
+	return { code: trimmed };
 }
 
 async function exchangeTokenRequest(params: URLSearchParams, errorPrefix: string): Promise<GoogleOAuthTokenSet> {
@@ -103,14 +155,20 @@ async function exchangeTokenRequest(params: URLSearchParams, errorPrefix: string
 
 export async function exchangeAuthorizationCode(
 	credentials: GoogleOAuthClientCredentials,
-	authorizationCode: string,
+	authorizationInput: string,
+	pendingBootstrap?: GmailOAuthPendingBootstrap,
 ): Promise<GoogleOAuthTokenSet> {
+	const authorizationResponse = extractAuthorizationResponse(authorizationInput, pendingBootstrap);
 	const params = new URLSearchParams({
-		code: extractAuthorizationCode(authorizationCode),
+		code: authorizationResponse.code,
 		client_id: credentials.clientId,
-		redirect_uri: credentials.redirectUri,
+		redirect_uri: pendingBootstrap?.redirectUri ?? credentials.redirectUri,
 		grant_type: "authorization_code",
 	});
+
+	if (pendingBootstrap?.codeVerifier) {
+		params.set("code_verifier", pendingBootstrap.codeVerifier);
+	}
 
 	if (credentials.clientSecret) {
 		params.set("client_secret", credentials.clientSecret);
@@ -167,3 +225,10 @@ export async function fetchConnectedGmailAccountEmail(accessToken: string): Prom
 
 	return payload.emailAddress.trim().toLowerCase();
 }
+
+export const internals = {
+	createPkceCodeVerifier,
+	createPkceCodeChallenge,
+	createOAuthState,
+	extractAuthorizationResponse,
+};
