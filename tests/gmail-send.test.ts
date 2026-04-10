@@ -180,6 +180,7 @@ test("gmail_send_email supports htmlBody and attachments in confirmation", async
 			}, undefined, undefined, ctx);
 			assert.match(confirmMessages[0] ?? "", /Format: HTML email/);
 			assert.match(confirmMessages[0] ?? "", /Attachments: brief.html/);
+			assert.match(confirmMessages[0] ?? "", new RegExp(attachmentPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 			assert.match(result.content[0]?.text ?? "", /format: html/);
 		} finally {
 			globalThis.fetch = originalFetch;

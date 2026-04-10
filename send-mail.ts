@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, extname, relative, resolve } from "node:path";
 
 import { fetchGmailJson } from "./gmail-client.ts";
 import type {
@@ -15,6 +16,15 @@ import type {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BODY_PREVIEW_LIMIT = 240;
+const GMAIL_LOCAL_STATE_ROOT = resolve(homedir(), ".config", "automation", "gmail");
+const SENSITIVE_ATTACHMENT_ROOTS = [
+	resolve(homedir(), ".ssh"),
+	resolve(homedir(), ".aws"),
+	resolve(homedir(), ".config", "gcloud"),
+	resolve(homedir(), ".azure"),
+	resolve(homedir(), ".kube"),
+	GMAIL_LOCAL_STATE_ROOT,
+];
 
 type PreparedAttachmentWithData = GmailPreparedAttachment & { data: Buffer };
 
@@ -88,6 +98,26 @@ function normalizeCommonFields(request: GmailSendMessageRequest) {
 	return { to, cc, bcc, subject, textBody, htmlBody, replyTo };
 }
 
+function isPathInside(rootPath: string, candidatePath: string): boolean {
+	const rel = relative(rootPath, candidatePath);
+	return rel === "" || (!rel.startsWith("..") && !rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`));
+}
+
+function assertSafeAttachmentPath(resolvedPath: string, projectRoot = process.cwd()): string {
+	const normalizedProjectRoot = resolve(projectRoot);
+	for (const sensitiveRoot of SENSITIVE_ATTACHMENT_ROOTS) {
+		if (isPathInside(sensitiveRoot, resolvedPath)) {
+			throw new Error(`Attachment path is blocked because it points to a sensitive local location: ${resolvedPath}`);
+		}
+	}
+
+	if (!isPathInside(normalizedProjectRoot, resolvedPath)) {
+		throw new Error(`Attachment path must stay inside the current project: ${normalizedProjectRoot}`);
+	}
+
+	return resolvedPath;
+}
+
 function base64Mime(data: Buffer): string {
 	return data.toString("base64").replace(/(.{76})/g, "$1\r\n");
 }
@@ -115,11 +145,11 @@ function guessContentType(filename: string): string {
 	}
 }
 
-async function prepareAttachments(inputs: GmailSendAttachmentInput[] | undefined): Promise<PreparedAttachmentWithData[]> {
+async function prepareAttachments(inputs: GmailSendAttachmentInput[] | undefined, projectRoot = process.cwd()): Promise<PreparedAttachmentWithData[]> {
 	if (!inputs?.length) return [];
 	const attachments: PreparedAttachmentWithData[] = [];
 	for (const input of inputs) {
-		const resolvedPath = resolve(assertSingleHeaderLine(input.path, "attachment path"));
+		const resolvedPath = assertSafeAttachmentPath(resolve(assertSingleHeaderLine(input.path, "attachment path")), projectRoot);
 		const filename = input.filename ? assertSingleHeaderLine(input.filename, "attachment filename") : basename(resolvedPath);
 		const contentType = input.contentType ? assertSingleHeaderLine(input.contentType, "attachment contentType") : guessContentType(filename);
 		const data = await readFile(resolvedPath);
@@ -297,4 +327,6 @@ export const internals = {
 	assertSingleHeaderLine,
 	stripHtml,
 	guessContentType,
+	assertSafeAttachmentPath,
+	isPathInside,
 };

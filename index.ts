@@ -112,7 +112,9 @@ function formatSendConfirmation(prepared: GmailPreparedSendMessage): string {
 		`Subject: ${prepared.subject}`,
 		prepared.htmlBody ? "Format: HTML email" : "Format: plain text email",
 		`Preview: ${prepared.bodyPreview}`,
-		prepared.attachments.length > 0 ? `Attachments: ${prepared.attachments.map((attachment) => `${attachment.filename} (${formatBytes(attachment.size)})`).join(", ")}` : "Attachments: none",
+		prepared.attachments.length > 0
+			? `Attachments: ${prepared.attachments.map((attachment) => `${attachment.filename} (${formatBytes(attachment.size)}) — ${attachment.path}`).join(", ")}`
+			: "Attachments: none",
 		"",
 		"This tool sends immediately after confirmation. Cancel if anything looks wrong.",
 	].filter((line): line is string => line !== undefined).join("\n");
